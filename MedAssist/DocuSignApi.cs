@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using static DocuSign.eSign.Client.Auth.OAuth;
 using DocuSign.eSign.Api;
 using DocuSign.eSign.Model;
+using System;
+
 namespace SccDocuSign
 {
     public class DocuSignAPI
@@ -19,7 +21,7 @@ namespace SccDocuSign
                     "signature",
                     "impersonation",
                 };
-            var apiClient = new ApiClient(basePath);
+            var apiClient = new DocuSignClient(basePath);
             OAuthToken _authToken = apiClient.RequestJWTUserToken(
                clientID, userID, server,
                DSHelper.ReadFileContent(DSHelper.PrepareFullPrivateKeyFilePath(privateKey)), 1, scopes);
@@ -59,6 +61,155 @@ namespace SccDocuSign
                 viewRequest.PingUrl = pingUrl; // optional setting
             }
             return viewRequest;
+        }
+  
+        public static string CreateEmbeddedConsoleView(DSConfiguration _dsConfig,
+            string accessToken,
+            string returnUrl,
+            string envelopeId)
+        {
+            //var accessToken = GetAccessToken(_dsConfig);
+            var apiClient = new DocuSignClient(_dsConfig.BaseURI);
+            apiClient.Configuration.DefaultHeader.Add("Authorization", "Bearer " + accessToken);
+            EnvelopesApi envelopesApi = new EnvelopesApi(apiClient);
+            ConsoleViewRequest viewRequest = MakeConsoleViewRequest(
+                returnUrl,
+                envelopeId);
+
+            // Step 1. create the NDSE view
+            // Call the CreateSenderView API
+            // Exceptions will be caught by the calling function
+            ViewUrl results = envelopesApi.CreateConsoleView(_dsConfig.AccountID, viewRequest);
+            string redirectUrl = results.Url;
+            return redirectUrl;
+        }
+        private static ConsoleViewRequest MakeConsoleViewRequest(
+            string dsReturnUrl,
+            string envelopeId)
+        {
+            // Data for this method
+            // dsReturnUrl
+            // startingView
+            // envelopeId
+            ConsoleViewRequest viewRequest = new ConsoleViewRequest();
+
+            // Set the URL where you want the recipient to go once they are done
+            // with the NDSE. It is usually the case that the
+            // user will never "finish" with the NDSE.
+            // Assume that control will not be passed back to your app.
+            if (!string.IsNullOrEmpty(dsReturnUrl))
+            {
+                viewRequest.ReturnUrl = dsReturnUrl;
+            }
+
+            if (!string.IsNullOrEmpty(envelopeId))
+            {
+                viewRequest.EnvelopeId = envelopeId;
+            }
+
+            return viewRequest;
+        }
+
+        /// <summary>
+        /// Resends an Existing Envelope
+        /// </summary>
+        /// <param name="_dsConfig"></param>
+        /// <param name="accessToken"></param>
+        /// <param name="envelopeId"></param>
+        /// <returns></returns>
+        public static bool ResendEnvelope(DSConfiguration _dsConfig, string accessToken, string envelopeId)
+        {
+            var apiClient = new DocuSignClient(_dsConfig.BaseURI);
+            apiClient.Configuration.DefaultHeader.Add("Authorization", "Bearer " + accessToken);
+            EnvelopesApi envelopesApi = new EnvelopesApi(apiClient);
+            var recipients = envelopesApi.ListRecipients(_dsConfig.AccountID, envelopeId);
+            RecipientsUpdateSummary summary = envelopesApi.UpdateRecipients(_dsConfig.AccountID, envelopeId, recipients, new EnvelopesApi.UpdateRecipientsOptions { resendEnvelope="true"});
+            foreach(var result in summary.RecipientUpdateResults)
+            {
+                if(result.ErrorDetails != null)
+                {
+                    //TODO: Figure out what an error looks like
+                    //log error?
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        public static string EnvelopeStatus(DSConfiguration _dsConfig, string accessToken, string envelopeId)
+        {
+            var apiClient = new DocuSignClient(_dsConfig.BaseURI);
+            apiClient.Configuration.DefaultHeader.Add("Authorization", "Bearer " + accessToken);
+            EnvelopesApi envelopesApi = new EnvelopesApi(apiClient);
+
+            var dummy = envelopesApi.GetEnvelope(_dsConfig.AccountID, envelopeId, new EnvelopesApi.GetEnvelopeOptions { include = "custom_fields,tabs,recipients,documents,attachments,extensions,workflow" });
+
+            return "";
+        }
+
+        public static void UpdateExpiration(DSConfiguration _dsConfig, string accessToken, string envelopeId, DateTime expirationDate)
+        {
+            try
+            {
+                var apiClient = new DocuSignClient(_dsConfig.BaseURI);
+                apiClient.Configuration.DefaultHeader.Add("Authorization", "Bearer " + accessToken);
+                EnvelopesApi envelopesApi = new EnvelopesApi(apiClient);
+
+                var dummy = envelopesApi.GetEnvelope(_dsConfig.AccountID, envelopeId, new EnvelopesApi.GetEnvelopeOptions { include = "custom_fields,tabs,recipients,documents,attachments,extensions,workflow" });
+                var dummy3Pre = envelopesApi.GetNotificationSettings(_dsConfig.AccountID, envelopeId);
+
+                var expirationSettings = new Expirations { ExpireEnabled = "true", ExpireAfter = "999", ExpireWarn = "998" };
+                envelopesApi.UpdateNotificationSettings(_dsConfig.AccountID, envelopeId, new EnvelopeNotificationRequest { Expirations = expirationSettings });
+
+
+                var dummy2 = envelopesApi.GetEnvelope(_dsConfig.AccountID, envelopeId, new EnvelopesApi.GetEnvelopeOptions { include = "custom_fields,tabs,recipients,documents,attachments,extensions,workflow" });
+                var dummy3 = envelopesApi.GetNotificationSettings(_dsConfig.AccountID, envelopeId);
+                var dummyLast = 1;
+            }catch(Exception e)
+            {
+                var dummy = e.Message;
+            }
+
+
+
+        }
+        public static void AddMetaData(DSConfiguration _dsConfig, string accessToken, string envelopeId)
+        {
+            try
+            {
+                var apiClient = new DocuSignClient(_dsConfig.BaseURI);
+                apiClient.Configuration.DefaultHeader.Add("Authorization", "Bearer " + accessToken);
+                EnvelopesApi envelopesApi = new EnvelopesApi(apiClient);
+
+                var dummy = envelopesApi.GetEnvelope(_dsConfig.AccountID, envelopeId, new EnvelopesApi.GetEnvelopeOptions { include = "custom_fields,tabs,recipients,documents,attachments,extensions,workflow" });
+                var textCustomField = new TextCustomField();
+                textCustomField.FieldId = "1";
+                textCustomField.Value = "TESTING TEXT CUSTOM FIELD VALUE";
+                textCustomField.Name = "TESTING NAME OF TEXT CUSTOM FIELD";
+                textCustomField.Show = "false";
+
+                var listCustomField = new ListCustomField();
+                listCustomField.FieldId = "1";
+                listCustomField.Value = "TESTING LIST CUSTOM VALUE";
+                listCustomField.Name = "TESTING NAME OF TEXT CUSTOM FIELD";
+                listCustomField.Show = "false";
+
+                var listFields = new CustomFields();
+                listFields.TextCustomFields = new List<TextCustomField> { textCustomField };
+                listFields.ListCustomFields = new List<ListCustomField> { listCustomField };
+                
+                //var fields = new CustomFields { TextCustomFields = listFields};
+                envelopesApi.CreateCustomFields(_dsConfig.AccountID, envelopeId, listFields);
+
+                var dummy2 = envelopesApi.GetEnvelope(_dsConfig.AccountID, envelopeId, new EnvelopesApi.GetEnvelopeOptions { include = "custom_fields,tabs,recipients,documents,attachments,extensions,workflow" });
+
+                var dummyLast = 1;
+
+            }
+            catch (Exception e)
+            {
+                var dummy = e.Message;
+            }
         }
 
     }
